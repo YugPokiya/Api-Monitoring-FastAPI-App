@@ -1,0 +1,27 @@
+# Replace the SMTP and Slack placeholders with credentials for your services.
+# Keep this file private after adding credentials; do not commit real secrets.
+global:
+  smtp_smarthost: "smtp.example.com:587"
+  smtp_from: "xyx@gmail.com"
+  smtp_auth_username: "Yoiya"
+  smtp_auth_password: ""
+  smtp_require_tls: true
+  slack_api_url: "https://hooks.slack.com/services/REPLACE/REPLACE/REPLACE"
+route:
+  receiver: email-and-slack
+  group_by: [alertname, job]
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: email-and-slack
+    email_configs:
+      - to: "REPLACE_WITH_ALERT_RECIPIENT@example.com"
+        send_resolved: true
+    slack_configs:
+      - channel: "#REPLACE_WITH_ALERT_CHANNEL"
+        send_resolved: true
+        title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}{{ .Annotations.summary }} — {{ .Annotations.description }}{{ end }}

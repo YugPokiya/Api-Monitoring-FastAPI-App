@@ -1,0 +1,53 @@
+groups:
+  - name: api-availability
+    rules:
+      - alert: FastAPITargetDown
+        expr: up{job="fastapi"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: FastAPI API is down
+          description: Prometheus cannot scrape the FastAPI metrics endpoint for 30 seconds.
+
+      - alert: FastAPIHealthCheckFailed
+        expr: probe_success{job="fastapi-health"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: FastAPI health check failed
+          description: The API /health endpoint did not return a successful HTTP response for 30 seconds.
+
+  - name: api-performance
+    rules:
+      - alert: FastAPIResponseTimeOver3Seconds
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(api_http_request_duration_seconds_bucket[5m]))) > 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: FastAPI p95 response time exceeds 3 seconds
+          description: The 95th percentile response time exceeded 3 seconds for one minute.
+
+      - alert: FastAPIHttp500Errors
+        expr: sum(rate(api_http_requests_total{status="500"}[5m])) > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: FastAPI is returning HTTP 500 errors
+          description: HTTP 500 responses have been observed during the last five minutes.
+
+      - alert: FastAPIIncreasedFailureRate
+        expr: |
+          sum(rate(api_http_requests_total{status=~"4..|5.."}[5m]))
+          / clamp_min(sum(rate(api_http_requests_total[5m])), 0.001) > 0.05
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: FastAPI failure rate exceeds 5 percent
+          description: More than 5 percent of API requests failed for one minute.
