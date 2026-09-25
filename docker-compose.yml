@@ -2,6 +2,9 @@ services:
   api:
     build: .
     restart: unless-stopped
+    environment:
+      ALERT_LATENCY_MS: ${ALERT_LATENCY_MS:-1000}
+      ALERT_ERROR_PERCENT: ${ALERT_ERROR_PERCENT:-10}
     command: ["sh", "-c", "uvicorn monitoring:app --host 0.0.0.0 --port 8000 >> /logs/api.log 2>&1"]
     volumes:
       - ./logs:/logs

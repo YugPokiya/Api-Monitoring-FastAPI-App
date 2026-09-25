@@ -1,0 +1,8 @@
+.env
+alertmanager/.env
+alertmanager/secrets/
+logs/*.log
+__pycache__/
+.pytest_cache/
+.venv/
+venv/

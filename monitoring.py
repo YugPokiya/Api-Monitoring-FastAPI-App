@@ -79,10 +79,23 @@ async def collect_metrics(request: Request, call_next):
         with _lock:
             _requests[(method, route_path, status)] += 1
             _latencies.setdefault(route_path, deque(maxlen=500)).append(elapsed)
-            if status >= 500:
-                cause = "Simulated server failure" if route_path == "/simulate-error" else "Server returned an error"
-                _events.append({"time": utc_now(), "type": "http_error", "route": route_path,
-                                "status": status, "cause": cause})
+            if status >= 400:
+                if status == 401:
+                    event_type, cause = "authentication_error", "Missing or invalid API credentials"
+                elif status == 429:
+                    event_type, cause = "rate_limit", "Client exceeded the allowed request rate"
+                elif status == 504:
+                    event_type, cause = "timeout", "The simulated API operation exceeded its timeout"
+                elif route_path == "/simulate-error":
+                    event_type, cause = "http_error", "Intentional server failure injected by /simulate-error"
+                else:
+                    event_type, cause = "http_error", "Server returned an error"
+                _events.append({"time": utc_now(), "type": "http_error", "event_type": event_type,
+                                "route": route_path, "status": status, "cause": cause})
+            elif route_path == "/simulate-timeout" and elapsed >= ALERT_LATENCY_MS:
+                _events.append({"time": utc_now(), "type": "slow_request", "event_type": "timeout",
+                                "route": route_path, "status": status,
+                                "cause": f"Request took {elapsed:.0f} ms; threshold is {ALERT_LATENCY_MS:g} ms"})
         HTTP_REQUESTS.labels(method, route_path, str(status)).inc()
         HTTP_DURATION.labels(method, route_path).observe(time.perf_counter() - started)
         CPU_PERCENT.set(psutil.cpu_percent(interval=None))
@@ -118,10 +131,25 @@ async def simulate_error():
                                                   "timestamp": utc_now()})
 
 
+@app.get("/simulate-auth")
+async def simulate_auth():
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=401, content={
+        "error": "Unauthorized", "message": "Missing or invalid API credentials",
+        "timestamp": utc_now(),
+    })
+
+
 @app.get("/simulate-timeout")
 async def simulate_timeout(delay: float = 3):
     delay = max(0, min(delay, 30))
     await asyncio.sleep(delay)
+    if delay * 1000 >= ALERT_LATENCY_MS:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=504, content={
+            "error": "GatewayTimeout", "message": "Simulated API request timed out",
+            "delayed_seconds": delay, "timestamp": utc_now(),
+        })
     return {"status": "ok", "delayed_seconds": delay, "timestamp": utc_now()}
 
 
@@ -162,6 +190,19 @@ def snapshot() -> dict[str, Any]:
         item["avg_ms"] = round(sum(values) / len(values), 1) if values else 0
         item["p95_ms"] = round(values[min(len(values)-1, int(len(values)*.95))], 1) if values else 0
     alerts = []
+    event_types = {event.get("event_type") for event in events}
+    if "authentication_error" in event_types:
+        alerts.append({"severity": "warning", "title": "API authentication failure",
+                       "detail": "HTTP 401 detected: the request is missing valid API credentials."})
+    if "timeout" in event_types:
+        alerts.append({"severity": "warning", "title": "API request timeout",
+                       "detail": "A slow request or HTTP 504 timeout was detected; inspect upstream latency."})
+    if "rate_limit" in event_types:
+        alerts.append({"severity": "warning", "title": "API rate limit exceeded",
+                       "detail": "HTTP 429 detected: request volume exceeded the configured limit."})
+    if "http_error" in event_types and server_errors:
+        alerts.append({"severity": "critical", "title": "API server error",
+                       "detail": "HTTP 500 detected; inspect the captured event cause and server logs."})
     error_pct = errors / total * 100 if total else 0
     if error_pct >= ALERT_ERROR_PERCENT:
         alerts.append({"severity": "critical", "title": "Elevated error rate",
@@ -195,7 +236,7 @@ DASHBOARD = r'''<!doctype html>
 </style></head><body><main>
 <div class="top"><div><div class="eyebrow">Operations / Service health</div><h1>API Monitoring</h1><div class="sub">Sample REST API · request health, latency, failures and alerts</div></div><div class="live"><span class="dot" id="dot"></span><span id="health">Connecting</span></div></div>
 <section class="cards"><div class="card"><div class="label">Availability</div><div class="value" id="availability">—</div><div class="hint">Process health check</div></div><div class="card"><div class="label">Requests observed</div><div class="value" id="requests">—</div><div class="hint">Since this process started</div></div><div class="card"><div class="label">Error percentage</div><div class="value" id="errors">—</div><div class="hint">HTTP 4xx and 5xx responses</div></div><div class="card"><div class="label">Response time · p95</div><div class="value" id="latency">—</div><div class="hint">Recent request samples</div></div></section>
-<div class="layout"><div><section class="panel"><h2>Endpoint performance</h2><table class="table"><thead><tr><th>ROUTE</th><th>REQUESTS</th><th>ERRORS</th><th>AVG / P95</th><th>HTTP STATUS</th></tr></thead><tbody id="routes"><tr><td colspan="5" class="empty">Waiting for requests…</td></tr></tbody></table></section><section class="panel"><h2>Try the API · create monitoring signals</h2><div class="actions"><a href="/health" target="_blank">Healthy check</a><a href="/users" target="_blank">Sample users</a><a href="/products" target="_blank">Sample products</a><a href="/simulate-timeout?delay=2" target="_blank">Slow response (2s)</a><a href="/simulate-error" target="_blank">Trigger HTTP 500</a><a href="/simulate-rate-limit" target="_blank">Rate limit (6× for 429)</a><a href="/metrics" target="_blank">Prometheus metrics</a><a href="/docs" target="_blank">API docs</a></div><div class="foot">Metrics and alerts update every 2 seconds. Rate limit allows 5 requests per minute.</div></section></div>
+<div class="layout"><div><section class="panel"><h2>Endpoint performance</h2><table class="table"><thead><tr><th>ROUTE</th><th>REQUESTS</th><th>ERRORS</th><th>AVG / P95</th><th>HTTP STATUS</th></tr></thead><tbody id="routes"><tr><td colspan="5" class="empty">Waiting for requests…</td></tr></tbody></table></section><section class="panel"><h2>Try the API · create monitoring signals</h2><div class="actions"><a href="/health" target="_blank">Healthy check</a><a href="/users" target="_blank">Sample users</a><a href="/products" target="_blank">Sample products</a><a href="/simulate-auth" target="_blank">Invalid authentication (401)</a><a href="/simulate-timeout?delay=3" target="_blank">Simulate timeout (504)</a><a href="/simulate-error" target="_blank">Trigger HTTP 500</a><a href="/simulate-rate-limit" target="_blank">Rate limit (6× for 429)</a><a href="/metrics" target="_blank">Prometheus metrics</a><a href="/docs" target="_blank">API docs</a></div><div class="foot">Metrics and alerts update every 2 seconds. Rate limit allows 5 requests per minute.</div></section></div>
 <div><section class="panel"><h2>Active alerts</h2><div id="alerts" class="empty">No active alerts</div></section><section class="panel"><h2>Recent failure events · root cause</h2><div id="events" class="empty">No failures recorded</div></section><section class="panel"><h2>Server health</h2><div id="server" class="muted">Loading…</div></section></div></div><div class="foot" id="updated">Connecting to monitoring API…</div></main>
 <script>
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

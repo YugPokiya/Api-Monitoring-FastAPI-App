@@ -41,6 +41,33 @@ groups:
           summary: FastAPI is returning HTTP 500 errors
           description: HTTP 500 responses have been observed during the last five minutes.
 
+      - alert: FastAPIAuthenticationFailures
+        expr: sum(rate(api_http_requests_total{status="401"}[5m])) > 0
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: FastAPI authentication failure detected
+          description: HTTP 401 responses indicate missing or invalid API credentials.
+
+      - alert: FastAPIRateLimitExceeded
+        expr: sum(rate(api_http_requests_total{status="429"}[5m])) > 0
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: FastAPI rate limit exceeded
+          description: HTTP 429 responses indicate clients exceeded the configured request rate.
+
+      - alert: FastAPITimeout
+        expr: sum(rate(api_http_requests_total{status="504"}[5m])) > 0
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: FastAPI request timed out
+          description: HTTP 504 responses indicate API requests exceeded the timeout threshold.
+
       - alert: FastAPIIncreasedFailureRate
         expr: |
           sum(rate(api_http_requests_total{status=~"4..|5.."}[5m]))

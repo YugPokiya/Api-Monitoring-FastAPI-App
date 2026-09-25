@@ -15,6 +15,12 @@ def init_db() -> None:
                 [
                     User(name="Avery Chen", email="avery@example.com", role="admin"),
                     User(name="Jordan Lee", email="jordan@example.com", role="user"),
+                    User(name="J Lee", email="jordan@example.com", role="user"),
+                    User(name="Jo Lee", email="jordan@example.com", role="user"),
+                    User(name="Jor Lee", email="jordan@example.com", role="user"),
+                    User(name="Jord Lee", email="jordan@example.com", role="user"),
+                    User(name="Jorda Lee", email="jordan@example.com", role="user"),
+
                 ]
             )
         if db.query(Product).count() == 0:
