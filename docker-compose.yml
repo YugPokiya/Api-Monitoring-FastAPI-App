@@ -2,7 +2,9 @@ services:
   api:
     build: .
     restart: unless-stopped
-    command: ["uvicorn", "monitoring:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["sh", "-c", "uvicorn monitoring:app --host 0.0.0.0 --port 8000 >> /logs/api.log 2>&1"]
+    volumes:
+      - ./logs:/logs
     ports:
       - "8000:8000"
     healthcheck:
