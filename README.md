@@ -204,4 +204,4 @@ python -m pytest New1/tests -q
 
 Database tests use in-memory SQLite and do not require a running PostgreSQL
 server.
-<img width="956" height="503" alt="image" src="https://github.com/user-attachments/assets/f0779f3b-64c3-4f77-bd73-82b360eb8e21" />
+<img width="943" height="473" alt="image" src="https://github.com/user-attachments/assets/5fb9acff-f074-4290-8ccb-ff1889a02df0" />
